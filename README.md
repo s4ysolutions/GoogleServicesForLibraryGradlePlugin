@@ -7,7 +7,7 @@ This plugin is non-drop-in replacement for the official [Google Services Gradle 
 It is intended to be used in androidTest within libraries modules where the 
 original plugin is [not applicable](https://github.com/google/play-services-plugins/blob/main/google-services-plugin/README.md#compatible-android-plugins).
 
-## Usage
+## Usage plugin
 
 ### Plugins DSL
 
@@ -55,9 +55,9 @@ googleServiceLibrary {
 }
 ```
 
-#### Created artifact
+## Usage generated code
 
-To the `build/generated` directory will be created a file `googleServicesOptionsBuilder.kt` with the content like this:
+In the `build/generated` directory will be created a file `googleServicesOptionsBuilder.kt` with the content like this:
 
 ```kotlin
 package your.application.id
@@ -86,3 +86,6 @@ fun firebaseInit() {
     }
 }
 ```
+
+*Pay attention*: unlike the original plugin, this plugin does not init the FirebaseApp automatically.
+You need to call `firebaseInit()` before the usage Firebase manually.
