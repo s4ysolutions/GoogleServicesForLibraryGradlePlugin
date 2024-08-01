@@ -124,8 +124,8 @@ abstract class GenerateGoogleServicesOptionsBuilderTask : DefaultTask() {
         buildConfigFile.parentFile.mkdirs()
         buildConfigFile.writeText(
             """
-            package ${classPackage.get()};
-            import com.google.firebase.FirebaseOptions;
+            package ${classPackage.get()}
+            import com.google.firebase.FirebaseOptions
 
             fun googleServicesOptionsBuilder():FirebaseOptions.Builder =
                FirebaseOptions.Builder()
