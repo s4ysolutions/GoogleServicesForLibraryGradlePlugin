@@ -95,6 +95,8 @@ The convinent way to use the generated function is Junit rule:
 Define rule in _FirebaseRule.kt_
 
 ```
+package com.example.rules
+
 private var initialized = false
 class FirebaseRule: MethodRule {
     override fun apply(base: Statement, method: FrameworkMethod?, target: Any?): Statement {
@@ -117,6 +119,8 @@ class FirebaseRule: MethodRule {
 ... and use it in the test classes
 
 ```
+import com.example.rules.FirebaseRule
+
 class FirebaseSomeTest {
 
     @get:Rule
