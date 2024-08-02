@@ -89,3 +89,47 @@ fun firebaseInit() {
 
 *Pay attention*: unlike the original plugin, this plugin does not init the FirebaseApp automatically.
 You need to call `firebaseInit()` before the usage Firebase manually.
+
+The convinent way to use the generated function is Junit rule:
+
+Define rule in _FirebaseRule.kt_
+
+```
+private var initialized = false
+class FirebaseRule: MethodRule {
+    override fun apply(base: Statement, method: FrameworkMethod?, target: Any?): Statement {
+        if (!initialized) {
+            val builder: FirebaseOptions.Builder = googleServicesOptionsBuilder()
+            val options = builder.build()
+            val app = ApplicationProvider.getApplicationContext<Application>()
+            FirebaseApp.initializeApp(app, options, "[DEFAULT]")
+            initialized = true
+        }
+        return object : Statement() {
+            override fun evaluate() {
+                base.evaluate()
+            }
+        }
+    }
+}
+```
+
+... and use it in the test classes
+
+```
+class FirebaseSomeTest {
+
+    @get:Rule
+    val firebaseTestRule = FirebaseRule()
+
+    @Test
+    fun something_shouldDo(): Unit {
+        // Firebase already initialized here
+        val appContext = InstrumentationRegistry.getInstrumentation().targetContext
+
+        FirebaseStorage.getInstance().reference.child("...").getFile(...)
+        ...
+```
+
+
+
