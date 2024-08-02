@@ -4,7 +4,7 @@ import com.android.build.api.variant.LibraryAndroidComponentsExtension
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.configurationcache.extensions.capitalized
+import org.gradle.api.tasks.TaskProvider
 import org.gradle.kotlin.dsl.*
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.File
@@ -15,9 +15,7 @@ class GoogleServicesForLibraryPlugin : Plugin<Project> {
     }
 
     internal fun getPossibleJsonFiles(
-        buildType: String,
-        flavorNames: List<String>,
-        root: File
+        buildType: String, flavorNames: List<String>, root: File
     ): List<File> {
         val fileLocations: MutableList<String> = ArrayList()
         // assume the current directory is the library module root
@@ -31,25 +29,18 @@ class GoogleServicesForLibraryPlugin : Plugin<Project> {
             fileLocations.add("src/$it")
             fileLocations.add("src/$buildType/$it")
         }
-        return fileLocations
-            .distinct()
-            .map { location: String ->
+        return fileLocations.distinct().map { location: String ->
                 if (location.isEmpty()) JSON_FILE_NAME else "$location/$JSON_FILE_NAME"
-            }
-            .map {
+            }.map {
                 root.resolve(it)
-            }
-            .sortedBy {
+            }.sortedBy {
                 it.canonicalPath.split("/").size
             }
     }
 
     private fun getJsonFiles(
-        buildType: String,
-        flavorNames: List<String>,
-        root: File
-    ): List<File> = getPossibleJsonFiles(buildType, flavorNames, root)
-        .filter { it.isFile }
+        buildType: String, flavorNames: List<String>, root: File
+    ): List<File> = getPossibleJsonFiles(buildType, flavorNames, root).filter { it.isFile }
 
 
     override fun apply(project: Project) {
@@ -71,26 +62,22 @@ class GoogleServicesForLibraryPlugin : Plugin<Project> {
      * I have to add this because `google-services` plugin does not work with library modules
      */
     internal fun Project.addGenerateGoogleServicesOptionsBuilderTask(extension: LibraryAndroidComponentsExtension) {
+        var taskProvider: TaskProvider<GenerateGoogleServicesOptionsBuilderTask>? = null
         extension.onVariants { variant ->
             val java = variant.sources.java
             if (java == null) {
                 println(" ERROR: variant ${variant.name} does not have sourceSet, the file won't be in path.")
             } else {
                 val buildType = variant.buildType.orEmpty()
-                // The purpose of the plugin to run tests in the androidTest
-                // "main" should use the official google-services plugin
-                // listOf("main", "androidTest").forEach { setName ->
-                listOf("androidTest").forEach { setName ->
-                    val taskName =
-                        "generateGoogleServicesOptionsBuilder${setName.capitalized()}${variant.name.capitalized()}"
-                    println("    registerTask: $taskName")
-
-                    val provider = tasks.register(taskName, GenerateGoogleServicesOptionsBuilderTask::class.java) {
-                        val googleServicesExtension =
-                            project.extensions.getByType<GoogleServicesExtension>()
-                        val googleCloudAppId = googleServicesExtension.googleCloudAppId
-                        if (googleCloudAppId == null) {
-                            val message = """
+                // is seems compileReleaseAndroidTestKotlin does not exist
+                listOf("androidTest", "ReleaseK").forEach { setName ->
+                    val taskName = "generateGoogleServicesOptionsBuilder"
+                    val provider = taskProvider ?: run {
+                        val p = tasks.register<GenerateGoogleServicesOptionsBuilderTask>(taskName) {
+                            val googleServicesExtension = project.extensions.getByType<GoogleServicesExtension>()
+                            val googleCloudAppId = googleServicesExtension.googleCloudAppId
+                            if (googleCloudAppId == null) {
+                                val message = """
                             ERROR: googleCloudAppId is null, the file won't be in path.
                             Please add the following to your build.gradle.kts:
                             ```
@@ -104,55 +91,53 @@ class GoogleServicesForLibraryPlugin : Plugin<Project> {
                             entries in the google-services.json file. In fact googleCloudAppId is used to find
                             the correct "client" entry in the google-services.json file.
                             """
-                            throw GradleException(message)
-                        }
-                        val classPackage = googleServicesExtension.classPackage ?: googleCloudAppId
-                        println("The class will be in package: $classPackage, use googleServiceLibrary.classPackage to change it")
+                                throw GradleException(message)
+                            }
+                            val classPackage = googleServicesExtension.classPackage ?: googleCloudAppId
+                            println("    The class will be in package: $classPackage, use googleServiceLibrary.classPackage to change it")
 
-                        this.googleCloudAppId.set(googleCloudAppId)
-                        this.classPackage.set(classPackage)
-                        val productFlavors = variant.productFlavors.map { it.second }
+                            this.googleCloudAppId.set(googleCloudAppId)
+                            this.classPackage.set(classPackage)
+                            val productFlavors = variant.productFlavors.map { it.second }
 
-                        val jsonFiles = getJsonFiles(
-                            buildType,
-                            productFlavors,
-                            projectDir
-                        )
-                        if (jsonFiles.isEmpty()) {
-                            val paths = getPossibleJsonFiles(
-                                buildType,
-                                productFlavors,
-                                projectDir
-                            ).joinToString("\n") { it.canonicalPath }
-                            val message =
-                                """
+                            val jsonFiles = getJsonFiles(
+                                buildType, productFlavors, projectDir
+                            )
+                            if (jsonFiles.isEmpty()) {
+                                val paths = getPossibleJsonFiles(
+                                    buildType, productFlavors, projectDir
+                                ).joinToString("\n") { it.canonicalPath }
+                                val message = """
                 File $JSON_FILE_NAME is missing. 
                 The Google Services Plugin cannot function without it. 
                 Searched locations:
                 $paths
                 """.trimIndent().trimMargin()
 
-                            throw GradleException(message)
-                        }
+                                throw GradleException(message)
+                            }
 
-                        jsonFile.set(jsonFiles.first())
-                        println("    jsonFile: ${jsonFiles.first().canonicalPath}")
-                        description =
-                            "generates generateGoogleServicesOptionsBuilder.kt with googleServicesOptionsBuilder()"
-                        group = "Custom"
+                            jsonFile.set(jsonFiles.first())
+                            println("    jsonFile: ${jsonFiles.first().canonicalPath}")
+                            description =
+                                "generates generateGoogleServicesOptionsBuilder.kt with googleServicesOptionsBuilder()"
+                            group = "Custom"
+                        }
+                        taskProvider = p
+                        p
                     }
                     java.addGeneratedSourceDirectory(provider) {
-                        /*
                         if (it.outputDir.isPresent) {
-                            println("    add sources path: [${java.name}] ${it.outputDir.get()}")
+                            //    println("    add sources path: [${java.name}] ${it.outputDir.get()}")
                         }
-                         */
                         it.outputDir
                     }
+
                     tasks.withType<KotlinCompile> {
-                        if (name.startsWith("compile${buildType.capitalized()}${setName.capitalized()}"))
-                            println("    add dependency on $taskName to ${this.name}")
-                        dependsOn(provider.get())
+                        if (name.lowercase().startsWith("compile$buildType$setName".lowercase())) {
+                            println("    add dependency on $taskName to ${name}")
+                            dependsOn(provider.get())
+                        }
                     }
                 }
             }
