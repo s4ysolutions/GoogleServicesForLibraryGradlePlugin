@@ -124,7 +124,7 @@ import com.example.rules.FirebaseRule
 class FirebaseSomeTest {
 
     @get:Rule
-    val firebaseTestRule = FirebaseRule()
+    val firebaseRule = FirebaseRule()
 
     @Test
     fun something_shouldDo(): Unit {
