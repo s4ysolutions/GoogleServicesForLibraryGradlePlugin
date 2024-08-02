@@ -1,3 +1,5 @@
+@file:Suppress("UnstableApiUsage")
+
 plugins {
     `kotlin-dsl`
     id("java-gradle-plugin")
@@ -5,7 +7,7 @@ plugins {
 }
 
 group = "solutions.s4y.gms"
-version = "1.0.0-alpha01"
+version = "1.0.1-alpha02"
 
 dependencies {
     implementation("com.android.tools.build:gradle:8.5.1")
@@ -24,6 +26,10 @@ java {
 
 kotlin {
     jvmToolchain(17)
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
 }
 
 gradlePlugin {

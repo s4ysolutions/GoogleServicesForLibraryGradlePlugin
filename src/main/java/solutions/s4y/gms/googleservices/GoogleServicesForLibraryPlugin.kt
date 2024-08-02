@@ -14,46 +14,42 @@ class GoogleServicesForLibraryPlugin : Plugin<Project> {
         private const val JSON_FILE_NAME = "google-services.json"
     }
 
-    private fun getJsonFilePaths(
+    internal fun getPossibleJsonFiles(
         buildType: String,
-        flavorNames: Collection<String>,
+        flavorNames: List<String>,
         root: File
     ): List<File> {
         val fileLocations: MutableList<String> = ArrayList()
-        val flavorName =
-            flavorNames.stream()
-                .reduce("") { a, b -> a + if (a.isEmpty()) b else b.capitalized() }
-        fileLocations.add("")
-        fileLocations.add("src/$flavorName/$buildType")
-        fileLocations.add("src/$buildType/$flavorName")
-        fileLocations.add("src/$flavorName")
+        // assume the current directory is the library module root
+        // and we have to take a look at the parent directory
+        // for the project shared google-services.json file
+        fileLocations.add("..")
+        fileLocations.add(".")
+        fileLocations.add("src")
         fileLocations.add("src/$buildType")
-        fileLocations.add("src/" + flavorName + buildType.capitalized())
-        fileLocations.add("src/$buildType")
-        var fileLocation = "src"
-        for (flavor in flavorNames) {
-            fileLocation += "/$flavor"
-            fileLocations.add(fileLocation)
-            fileLocations.add("$fileLocation/$buildType")
-            fileLocations.add(fileLocation + buildType.capitalized())
+        flavorNames.forEach {
+            fileLocations.add("src/$it")
+            fileLocations.add("src/$buildType/$it")
         }
         return fileLocations
-            .asSequence()
             .distinct()
-            .sortedByDescending { path -> path.count { it == '/' } }
             .map { location: String ->
-                if (location.isEmpty()) location + JSON_FILE_NAME else "$location/$JSON_FILE_NAME"
-            }.map {
+                if (location.isEmpty()) JSON_FILE_NAME else "$location/$JSON_FILE_NAME"
+            }
+            .map {
                 root.resolve(it)
             }
-            .toList()
+            .sortedBy {
+                it.canonicalPath.split("/").size
+            }
     }
 
     private fun getJsonFiles(
         buildType: String,
-        flavorNames: Collection<String>,
+        flavorNames: List<String>,
         root: File
-    ): List<File> = getJsonFilePaths(buildType, flavorNames, root).filter { it.isFile }.toList()
+    ): List<File> = getPossibleJsonFiles(buildType, flavorNames, root)
+        .filter { it.isFile }
 
 
     override fun apply(project: Project) {
@@ -81,21 +77,20 @@ class GoogleServicesForLibraryPlugin : Plugin<Project> {
                 println(" ERROR: variant ${variant.name} does not have sourceSet, the file won't be in path.")
             } else {
                 val buildType = variant.buildType.orEmpty()
-                // AndroidTest available only for debug variant?
-                if (buildType == "debug") {
-                    // The purpose of the plugin to run tests
-                    // listOf("main", "androidTest").forEach { setName ->
-                    listOf("androidTest").forEach { setName ->
-                        val taskName =
-                            "generateGoogleServicesOptionsBuilder${setName.capitalized()}${variant.name.capitalized()}"
-                        println("    registerTask: $taskName")
+                // The purpose of the plugin to run tests in the androidTest
+                // "main" should use the official google-services plugin
+                // listOf("main", "androidTest").forEach { setName ->
+                listOf("androidTest").forEach { setName ->
+                    val taskName =
+                        "generateGoogleServicesOptionsBuilder${setName.capitalized()}${variant.name.capitalized()}"
+                    println("    registerTask: $taskName")
 
-                        val provider = tasks.register(taskName, GenerateGoogleServicesOptionsBuilderTask::class.java) {
-                            val googleServicesExtension =
-                                project.extensions.getByType<GoogleServicesExtension>()
-                            val googleCloudAppId = googleServicesExtension.googleCloudAppId
-                            if (googleCloudAppId == null) {
-                                val message = """
+                    val provider = tasks.register(taskName, GenerateGoogleServicesOptionsBuilderTask::class.java) {
+                        val googleServicesExtension =
+                            project.extensions.getByType<GoogleServicesExtension>()
+                        val googleCloudAppId = googleServicesExtension.googleCloudAppId
+                        if (googleCloudAppId == null) {
+                            val message = """
                             ERROR: googleCloudAppId is null, the file won't be in path.
                             Please add the following to your build.gradle.kts:
                             ```
@@ -109,56 +104,55 @@ class GoogleServicesForLibraryPlugin : Plugin<Project> {
                             entries in the google-services.json file. In fact googleCloudAppId is used to find
                             the correct "client" entry in the google-services.json file.
                             """
-                                throw GradleException(message)
-                            }
-                            val classPackage = googleServicesExtension.classPackage ?: googleCloudAppId
-                            println("The class will be in package: $classPackage, use googleServiceLibrary.classPackage to change it")
+                            throw GradleException(message)
+                        }
+                        val classPackage = googleServicesExtension.classPackage ?: googleCloudAppId
+                        println("The class will be in package: $classPackage, use googleServiceLibrary.classPackage to change it")
 
-                            this.googleCloudAppId.set(googleCloudAppId)
-                            this.classPackage.set(classPackage)
-                            val productFlavors = variant.productFlavors.map { it.second }
+                        this.googleCloudAppId.set(googleCloudAppId)
+                        this.classPackage.set(classPackage)
+                        val productFlavors = variant.productFlavors.map { it.second }
 
-                            val jsonFiles = getJsonFiles(
+                        val jsonFiles = getJsonFiles(
+                            buildType,
+                            productFlavors,
+                            projectDir
+                        )
+                        if (jsonFiles.isEmpty()) {
+                            val paths = getPossibleJsonFiles(
                                 buildType,
                                 productFlavors,
                                 projectDir
-                            )
-                            if (jsonFiles.isEmpty()) {
-                                val message =
-                                    """
+                            ).joinToString("\n") { it.canonicalPath }
+                            val message =
+                                """
                 File $JSON_FILE_NAME is missing. 
                 The Google Services Plugin cannot function without it. 
-                Searched locations: ${
-                                        getJsonFilePaths(
-                                            buildType,
-                                            productFlavors,
-                                            projectDir
-                                        ).joinToString { "\n" }
-                                    }
-                """
-                                        .trimIndent()
+                Searched locations:
+                $paths
+                """.trimIndent().trimMargin()
 
-                                throw GradleException(message)
-                            }
+                            throw GradleException(message)
+                        }
 
-                            jsonFile.set(jsonFiles.first())
-                            description =
-                                "generates generateGoogleServicesOptionsBuilder.kt with googleServicesOptionsBuilder()"
-                            group = "Custom"
+                        jsonFile.set(jsonFiles.first())
+                        println("    jsonFile: ${jsonFiles.first().canonicalPath}")
+                        description =
+                            "generates generateGoogleServicesOptionsBuilder.kt with googleServicesOptionsBuilder()"
+                        group = "Custom"
+                    }
+                    java.addGeneratedSourceDirectory(provider) {
+                        /*
+                        if (it.outputDir.isPresent) {
+                            println("    add sources path: [${java.name}] ${it.outputDir.get()}")
                         }
-                        java.addGeneratedSourceDirectory(provider) {
-                            /*
-                            if (it.outputDir.isPresent) {
-                                println("    add sources path: [${java.name}] ${it.outputDir.get()}")
-                            }
-                             */
-                            it.outputDir
-                        }
-                        tasks.withType<KotlinCompile> {
-                            if (name.startsWith("compile${buildType.capitalized()}${setName.capitalized()}"))
-                                println("    add dependency on $taskName to ${this.name}")
-                            dependsOn(provider.get())
-                        }
+                         */
+                        it.outputDir
+                    }
+                    tasks.withType<KotlinCompile> {
+                        if (name.startsWith("compile${buildType.capitalized()}${setName.capitalized()}"))
+                            println("    add dependency on $taskName to ${this.name}")
+                        dependsOn(provider.get())
                     }
                 }
             }
